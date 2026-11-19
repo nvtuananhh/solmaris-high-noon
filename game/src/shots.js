@@ -27,6 +27,10 @@ export function applyShot(state, mode) {
     car.speed = 22;
     st.police.setWanted(3, 'shot setup');
     st.police._spawnCarNear(p); st.police._spawnCarNear(p);
+    // line the interceptors up behind the getaway car, on the boulevard
+    const pc = st.police.cars;
+    if (pc[0]) { pc[0].pos.set(-40, 0, 174); pc[0].heading = Math.PI / 2; pc[0].mesh.rotation.y = Math.PI / 2; }
+    if (pc[1]) { pc[1].pos.set(-56, 0, 180); pc[1].heading = Math.PI / 2; pc[1].mesh.rotation.y = Math.PI / 2; }
     park(6, 172, Math.PI / 2, 0x3a6ea8, 'sedan');
     park(-46, 180, Math.PI / 2, 0xf2c14e, 'van');
     park(28, 180, Math.PI / 2, 0xe8e4da, 'sedan');
@@ -34,7 +38,8 @@ export function applyShot(state, mode) {
     st.missions.setMarker(-150, 30);
     st.cash = 1240;
     st.cameraMode = 'chase-wide';
-    st.shotCam = { x: -42, y: 9, z: 156, lookX: -8, lookY: 1.5, lookZ: 178 };
+    // camera ON the boulevard, looking east down the chase, sea on the right
+    st.shotCam = { x: -72, y: 10, z: 176, lookX: 10, lookY: 1.5, lookZ: 179 };
   } else if (mode === 'foot') {
     // On foot in the Old Town square: peds, stalls, fountain, whitewashed walls.
     p.pos.set(6, 0, 16); p.heading = Math.PI * 0.9; p.car = null;
@@ -55,7 +60,9 @@ export function applyShot(state, mode) {
     st.missions.setObjective('Free roam — press M for the next mission');
     st.cash = 640;
     st.cameraMode = 'drive-wide';
-    st.shotCam = { x: -178, y: 10, z: -62, lookX: -198, lookY: 1.5, lookZ: -20 };
+    // camera east of the highway looking south down it: road centre, sea on
+    // the right, the lighthouse far ahead, skyline on the left
+    st.shotCam = { x: -186, y: 9, z: -92, lookX: -198, lookY: 1.5, lookZ: -20 };
   } else if (mode === 'combat') {
     // "The Drop" ambush: Mara on foot, pistol out, three rivals closing in.
     p.pos.set(0, 0, -78); p.heading = Math.PI; p.car = null;
@@ -68,9 +75,15 @@ export function applyShot(state, mode) {
     st.missions.setMarker(150, 150);
     st.cash = 870;
     st.cameraMode = 'combat-wide';
-    st.shotCam = { x: -14, y: 6, z: -62, lookX: 0, lookY: 1.4, lookZ: -92 };
+    // pulled back and raised: Mara centre-frame, purple rivals beyond her
+    st.shotCam = { x: -10, y: 8, z: -58, lookX: 0, lookY: 1.2, lookZ: -95 };
   }
-  // let one full second of simulation settle (traffic moves, sirens spin),
-  // then signal the capture tool.
-  setTimeout(() => { window.__shotReady = true; }, 1400);
+  // Signal the capture tool after 2 rendered frames of the staged scene
+  // (frame-based, not time-based: software rendering is slow headless).
+  let shotFrames = 0;
+  const waitFrames = () => {
+    if (++shotFrames >= 2) window.__shotReady = true;
+    else requestAnimationFrame(waitFrames);
+  };
+  requestAnimationFrame(waitFrames);
 }

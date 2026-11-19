@@ -2,6 +2,8 @@
 // marina with yachts, beachfront, cliffside coast highway and the lighthouse.
 // Exports the colliders (AABBs) everything else collides against, the road
 // network traffic follows, and the activity anchor points (garage, ramps...).
+// Repeated small parts (road dashes, windows, lamps, palms) are InstancedMeshes
+// so the scene stays fast even on software rendering.
 const THREE = window.THREE;
 import { CFG, clamp } from './config.js';
 import { makeRng, pick, range } from './random.js';
@@ -15,7 +17,9 @@ export class City {
     this.palms = [];
     this.tokenSpots = [];
     this.ramps = [];
+    this._inst = { dash: [], win: [], pole: [], bulb: [], trunk: [], leaf: [] };
     this.build();
+    this._finishInstancing();
   }
   addCollider(x, z, hx, hz) {
     this.colliders.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz });
@@ -49,6 +53,36 @@ export class City {
     }
     return false;
   }
+  _instanced(list, geo, mat, castShadow = false) {
+    if (!list.length) return;
+    const m = new THREE.InstancedMesh(geo, mat, list.length);
+    const d = new THREE.Object3D();
+    list.forEach((t, i) => {
+      d.position.set(t.x, t.y, t.z);
+      d.rotation.set(t.rx || 0, t.ry || 0, t.rz || 0);
+      d.scale.set(t.sx || 1, t.sy || 1, t.sz || 1);
+      d.updateMatrix();
+      m.setMatrixAt(i, d.matrix);
+    });
+    m.castShadow = castShadow;
+    m.instanceMatrix.needsUpdate = true;
+    this.scene.add(m);
+  }
+  _finishInstancing() {
+    const I = this._inst;
+    this._instanced(I.dash, new THREE.PlaneGeometry(0.5, 5),
+      new THREE.MeshBasicMaterial({ color: 0xf2e9c8 }));
+    this._instanced(I.win, new THREE.BoxGeometry(1.6, 1.8, 0.2),
+      new THREE.MeshBasicMaterial({ color: 0x2c3e50 }));
+    this._instanced(I.pole, new THREE.CylinderGeometry(0.12, 0.16, 6.5, 6),
+      new THREE.MeshLambertMaterial({ color: 0x2c2c34 }));
+    this._instanced(I.bulb, new THREE.SphereGeometry(0.4, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xfff6c8 }));
+    this._instanced(I.trunk, new THREE.CylinderGeometry(0.28, 0.42, 6, 6),
+      new THREE.MeshLambertMaterial({ color: CFG.colors.trunk }));
+    this._instanced(I.leaf, new THREE.ConeGeometry(2.6, 2.2, 6),
+      new THREE.MeshLambertMaterial({ color: CFG.colors.palm }), true);
+  }
   build() {
     const rng = this.rng, C = CFG.colors;
     const s = this.scene;
@@ -60,7 +94,7 @@ export class City {
     const sun = new THREE.DirectionalLight(C.sun, 2.4);
     sun.position.set(90, 160, 60);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(1024, 1024);
     sun.shadow.camera.left = -220; sun.shadow.camera.right = 220;
     sun.shadow.camera.top = 220; sun.shadow.camera.bottom = -220;
     sun.shadow.camera.far = 500; sun.shadow.bias = -0.0004;
@@ -90,7 +124,6 @@ export class City {
     // --- roads ---
     const roadMat = new THREE.MeshLambertMaterial({ color: C.road });
     const walkMat = new THREE.MeshLambertMaterial({ color: C.sidewalk });
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0xf2e9c8 });
     for (let i = -3; i <= 3; i++) this.roadLines.push(i * CFG.roadSpacing);
     for (const l of this.roadLines) {
       for (const [w, h, mat, y] of [
@@ -102,12 +135,10 @@ export class City {
         const b = new THREE.Mesh(new THREE.PlaneGeometry(h, w), mat);
         b.rotation.x = -Math.PI / 2; b.position.set(0, y, l); b.receiveShadow = true; s.add(b);
       }
-      // dashed centre lines
+      // dashed centre lines (instanced later)
       for (let t = -190; t < 190; t += 12) {
-        const d1 = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 5), lineMat);
-        d1.rotation.x = -Math.PI / 2; d1.position.set(l, 0.09, t); s.add(d1);
-        const d2 = new THREE.Mesh(new THREE.PlaneGeometry(5, 0.5), lineMat);
-        d2.rotation.x = -Math.PI / 2; d2.position.set(t, 0.09, l); s.add(d2);
+        this._inst.dash.push({ x: l, y: 0.09, z: t, rx: -Math.PI / 2 });
+        this._inst.dash.push({ x: t, y: 0.09, z: l, rx: -Math.PI / 2, rz: Math.PI / 2 });
       }
     }
     // coast highway along the west cliff + beachfront boulevard (z = 180)
@@ -122,7 +153,6 @@ export class City {
     const glassMat = new THREE.MeshLambertMaterial({ color: C.glass, emissive: 0x2a4a5a });
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
     const roofGeo = new THREE.ConeGeometry(1, 1, 4);
-    const winMat = new THREE.MeshBasicMaterial({ color: 0x2c3e50 });
     for (let bx = -3; bx <= 2; bx++) {
       for (let bz = -3; bz <= 2; bz++) {
         const cx = bx * 60 + 30, cz = bz * 60 + 30;
@@ -145,13 +175,11 @@ export class City {
             roof.scale.set(w * 0.75, 3.2, d * 0.75); roof.position.set(x, h + 1.6, z);
             roof.rotation.y = Math.PI / 4; roof.castShadow = true; s.add(roof);
           }
-          // windows: dark inset boxes on the street faces
+          // windows: dark insets on the street face (instanced later)
           const rows = Math.max(1, Math.floor(h / 4));
           for (let r = 0; r < rows; r++) {
             for (let cI = -1; cI <= 1; cI++) {
-              const win = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.8, 0.2), winMat);
-              win.position.set(x + cI * (w / 3.4), 3 + r * 4, z + d / 2 + 0.05);
-              s.add(win);
+              this._inst.win.push({ x: x + cI * (w / 3.4), y: 3 + r * 4, z: z + d / 2 + 0.05 });
             }
           }
           this.addCollider(x, z, w / 2 + 0.4, d / 2 + 0.4);
@@ -189,7 +217,6 @@ export class City {
         new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
       sail.position.set(120 + i * 24 + 7, 7, 199); s.add(sail);
     }
-    // marina lot fence + the repo sports car pad
     this.marinaLot = { x: 150, z: 150 };
     // --- lighthouse on the south-west cliff ---
     const lh = new THREE.Group();
@@ -211,18 +238,12 @@ export class City {
     const cliff = new THREE.Mesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0x9a8a72 }));
     cliff.scale.set(30, 8, 30); cliff.position.set(-205, 4, 205); cliff.castShadow = true; s.add(cliff);
     this.addCollider(-205, 205, 15, 15);
-    // --- palms along the boulevard + beach umbrellas ---
-    const trunkGeo = new THREE.CylinderGeometry(0.28, 0.42, 6, 6);
-    const trunkMat = new THREE.MeshLambertMaterial({ color: C.trunk });
-    const leafGeo = new THREE.ConeGeometry(2.6, 2.2, 6);
-    const leafMat = new THREE.MeshLambertMaterial({ color: C.palm });
+    // --- palms along the boulevard (instanced) + beach umbrellas ---
     for (let i = 0; i < 26; i++) {
       const x = -170 + i * 14 + range(rng, -3, 3);
       const z = i % 2 === 0 ? 171 : 189;
-      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-      trunk.position.set(x, 3, z); trunk.castShadow = true; s.add(trunk);
-      const leaves = new THREE.Mesh(leafGeo, leafMat);
-      leaves.position.set(x, 6.8, z); leaves.castShadow = true; s.add(leaves);
+      this._inst.trunk.push({ x, y: 3, z });
+      this._inst.leaf.push({ x, y: 6.8, z });
       this.palms.push({ x, z });
     }
     const umbCols = [0xe86a5a, 0x4fa8d8, 0xf2c14e, 0x7fc96a];
@@ -235,15 +256,11 @@ export class City {
         new THREE.MeshLambertMaterial({ color: 0xdddddd }));
       pole.position.set(x, 1.3, 198); s.add(pole);
     }
-    // --- street lamps ---
-    const lampMat = new THREE.MeshLambertMaterial({ color: 0x2c2c34 });
-    const bulbMat = new THREE.MeshBasicMaterial({ color: 0xfff6c8 });
+    // --- street lamps (instanced) ---
     for (let i = -3; i <= 3; i++) {
       for (const zz of [-150, -90, -30, 30, 90, 150]) {
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 6.5, 6), lampMat);
-        pole.position.set(i * 60 + 7, 3.25, zz); s.add(pole);
-        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), bulbMat);
-        bulb.position.set(i * 60 + 7, 6.6, zz); s.add(bulb);
+        this._inst.pole.push({ x: i * 60 + 7, y: 3.25, z: zz });
+        this._inst.bulb.push({ x: i * 60 + 7, y: 6.6, z: zz });
       }
     }
     // --- stunt ramps (plywood wedges) ---
@@ -255,6 +272,9 @@ export class City {
       const g = new THREE.Group();
       const wedge = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, 9), rampMat);
       wedge.rotation.x = -0.42; wedge.position.set(0, 1.6, 0); wedge.castShadow = true; g.add(wedge);
+      // solid support under the high end so the ramp reads as a wedge, not a plank
+      const support = new THREE.Mesh(new THREE.BoxGeometry(6, 2.4, 0.8), rampMat);
+      support.position.set(0, 1.2, -4.1); support.castShadow = true; g.add(support);
       g.position.set(r.x, 0, r.z); g.rotation.y = r.rotY; s.add(g);
       this.ramps.push({ x: r.x, z: r.z, rotY: r.rotY });
     }

@@ -49,6 +49,7 @@ function buildMaraMesh() {
 
 function init() {
   const settings = loadSettings();
+  const liveSettings = { ...settings }; // cached: no localStorage parse per frame
   // --- renderer / scene / camera ---
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(innerWidth, innerHeight);
@@ -149,7 +150,9 @@ function init() {
     state.minutes = d.minutes || CFG.startMinutes;
     player.pos.set(d.px || 0, 0, d.pz || 16);
     playerMesh.position.copy(player.pos);
-    for (const t of missions.tokens) if (state.tokensCollected.has(t.i)) t.mesh.visible = false;
+    for (const t of missions.tokens) {
+      if (state.tokensCollected.has(t.i)) { t.taken = true; t.mesh.visible = false; }
+    }
     state.objective = state.missionsDone.length >= 5
       ? 'Free roam — all five jobs done. Fares, races and tokens remain.'
       : 'Free roam — press M for the next mission';
@@ -174,6 +177,7 @@ function init() {
 
   // --- enter / exit car ---
   function enterCar(car) {
+    if (car.dead) { state.flash('This car is wrecked — find another ride.'); return; }
     if (car.driver === 'traffic') {
       // the driver bails out and runs
       const d = peds.spawnFare(car.pos.x + 2, car.pos.z + 2, -1);
@@ -261,15 +265,15 @@ function init() {
       respawn();
     },
     retry: () => { audio.click(); respawn(); },
-    volume: (v) => { audio.setVolume(v); saveSettings({ ...loadSettings(), volume: v }); },
-    sensitivity: (v) => { saveSettings({ ...loadSettings(), sensitivity: v }); },
+    volume: (v) => { audio.setVolume(v); liveSettings.volume = v; saveSettings(liveSettings); },
+    sensitivity: (v) => { liveSettings.sensitivity = v; saveSettings(liveSettings); },
   });
 
   // --- camera rig ---
   let camYaw = Math.PI * 0.85, camPitch = 0.32;
   const camTarget = new THREE.Vector3();
   function updateCamera(dt) {
-    const sens = loadSettings().sensitivity;
+    const sens = liveSettings.sensitivity;
     const m = input.consumeMouse();
     camYaw -= m.dx * 0.0026 * sens;
     camPitch = clamp(camPitch + m.dy * 0.0022 * sens, -0.15, 1.1);
@@ -313,7 +317,7 @@ function init() {
         t = 'Press G — Fresh Coat respray $50 (clears wanted, new paint)';
       else if (missions.farePed && dist2d(player.car.pos.x, player.car.pos.z, missions.farePed.x, missions.farePed.z) < 5)
         t = 'Press E to pick up the fare';
-      else if (missions.fare) t = 'Fare aboard — follow the yellow marker';
+      else if (missions.fare && !missions.farePed) t = 'Fare aboard — follow the yellow marker';
     } else {
       const car = traffic.nearestCar(player.pos.x, player.pos.z, 4.2);
       if (car) t = car.driver === 'traffic' ? `Press E to steal the ${car.name} (+1 ★)` : `Press E to enter the ${car.name}`;
@@ -393,7 +397,7 @@ function init() {
       if (car.airY <= 0) {
         for (const r of city.ramps) {
           if (dist2d(car.pos.x, car.pos.z, r.x, r.z) < 4.5 && Math.abs(car.speed) > 17) {
-            car.airVy = 8.5; car.airT = 0;
+            car.airVy = 10; car.airT = 0;
             state.flash('Airborne!');
             break;
           }
@@ -405,7 +409,7 @@ function init() {
         car.airVy -= CFG.gravity * dt;
         if (car.airY <= 0) {
           car.airY = 0; car.airVy = 0;
-          if (car.airT > 0.75) {
+          if (car.airT > 0.6) {
             state.cash += 50;
             state.banner(`STUNT JUMP!  +$50  (${car.airT.toFixed(1)}s air)`);
             audio.chime();
@@ -466,25 +470,32 @@ function init() {
     }
   }
 
+  // --- one simulation step (also callable from playtests: __solmaris.step) ---
+  function tick(dt) {
+    state.minutes += dt * CFG.minutesPerSecond;
+    handleActions(dt);
+    updatePlayer(dt);
+    traffic.update(dt, player, fx);
+    peds.update(dt, player.car);
+    police.update(dt, player, fx);
+    combat.update(dt, player, fx);
+    missions.update(dt);
+    fx.update(dt);
+    hud.update(dt);
+    if (frameNo % 3 === 0) minimap.draw(); // 2D map is cheap but need not run every frame
+    updatePrompt();
+  }
+
   // --- main loop ---
   const clock = new THREE.Clock();
   let firstFrame = true;
+  let frameNo = 0;
   function loop() {
     requestAnimationFrame(loop);
-    const dt = Math.min(clock.getDelta(), 0.05);
+    const dt = Math.min(clock.getDelta(), 0.1);
+    frameNo++;
     if (state.started && !state.paused && !state.over) {
-      state.minutes += dt * CFG.minutesPerSecond;
-      handleActions(dt);
-      updatePlayer(dt);
-      traffic.update(dt, player, fx);
-      peds.update(dt, player.car);
-      police.update(dt, player, fx);
-      combat.update(dt, player, fx);
-      missions.update(dt);
-      fx.update(dt);
-      hud.update(dt);
-      minimap.draw();
-      updatePrompt();
+      tick(dt);
     } else if (state.started && state.over) {
       fx.update(dt);
       hud.update(dt);
@@ -501,7 +512,18 @@ function init() {
   }
   loop();
   // expose a tiny debug hook for headless playtests
-  window.__solmaris = { state, enterCar, exitCar, respawn };
+  window.__solmaris = {
+    state, enterCar, exitCar, respawn,
+    // advance the simulation without waiting for frames (software rendering
+    // is slow headless); mirrors real frames, incl. clearing edge presses.
+    step(dt, n) {
+      for (let i = 0; i < (n || 1); i++) {
+        frameNo++;
+        if (state.started && !state.paused && !state.over) tick(dt);
+        input.endFrame();
+      }
+    },
+  };
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

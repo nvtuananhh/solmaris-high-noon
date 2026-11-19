@@ -30,7 +30,7 @@ export class Combat {
     t.m.visible = true; t.m.material.opacity = 0.9; t.life = 0.09;
   }
   spawnRival(x, z, hp = 70) {
-    const mesh = buildPersonMesh(0x8a2a3a, 0xc98a5a);
+    const mesh = buildPersonMesh(0x5a2a8a, 0xc98a5a); // rival crew: purple, never Mara's red
     mesh.position.set(x, 0, z);
     this.scene.add(mesh);
     const r = { mesh, x, z, heading: 0, hp, maxHp: hp, shootCd: 1 + Math.random(), dead: false, state: 'hunt' };

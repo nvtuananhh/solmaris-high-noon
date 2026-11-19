@@ -208,13 +208,13 @@ export class Missions {
       if (!this.farePed && this.fareT <= 0) { this.fareT = 20; this._spawnFare(); }
       if (this.farePed && p.car && dist2d(p.car.pos.x, p.car.pos.z, this.farePed.x, this.farePed.z) < 5) {
         st.flash('Press E to pick up the fare');
-        if (st.input.wasPressed('KeyE')) {
+        if (st.input.wasPressed('KeyE') && this.fare) {
           st.peds.remove(this.farePed); this.farePed = null;
           this.setMarker(this.fare.dest[0], this.fare.dest[1]);
           this.setObjective(`Taxi fare: take your passenger to the marker`);
           st.flash('Fare aboard — drive to the marker.');
         }
-      } else if (this.fare && p.car && dist2d(p.car.pos.x, p.car.pos.z, this.fare.dest[0], this.fare.dest[1]) < 7) {
+      } else if (this.fare && !this.farePed && p.car && dist2d(p.car.pos.x, p.car.pos.z, this.fare.dest[0], this.fare.dest[1]) < 7) {
         st.cash += this.fare.paid; st.faresDone++;
         st.banner(`FARE DELIVERED  +$${this.fare.paid}`);
         st.audio?.cash();

@@ -32,7 +32,10 @@ export class Input {
     window.addEventListener('mouseup', (e) => { if (e.button === 0) this.mouseDown = false; });
     canvas.addEventListener('click', () => {
       if (!this.locked && document.pointerLockElement !== canvas) {
-        canvas.requestPointerLock?.();
+        try {
+          const p = canvas.requestPointerLock?.();
+          if (p && p.catch) p.catch(() => { /* headless / denied: mouse-look just stays off */ });
+        } catch { /* pointer lock unavailable */ }
       }
     });
   }
