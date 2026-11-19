@@ -38,8 +38,9 @@ export function applyShot(state, mode) {
     st.missions.setMarker(-150, 30);
     st.cash = 1240;
     st.cameraMode = 'chase-wide';
-    // camera ON the boulevard, looking east down the chase, sea on the right
-    st.shotCam = { x: -72, y: 10, z: 176, lookX: 10, lookY: 1.5, lookZ: 179 };
+    // camera just north of the boulevard, looking south-east down the chase:
+    // the stunt ramp stays out of the sightline, sea and beach on the right
+    st.shotCam = { x: -64, y: 12, z: 167, lookX: -8, lookY: 1.5, lookZ: 179 };
   } else if (mode === 'foot') {
     // On foot in the Old Town square: peds, stalls, fountain, whitewashed walls.
     p.pos.set(6, 0, 16); p.heading = Math.PI * 0.9; p.car = null;

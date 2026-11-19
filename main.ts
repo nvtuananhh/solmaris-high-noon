@@ -37,9 +37,11 @@ const CAPS = {
 };
 
 class SubmissionError extends Error {
-  constructor(public check: string, message: string) {
+  check: string;
+  constructor(check: string, message: string) {
     super(`${check}: ${message}`);
     this.name = 'SubmissionError';
+    this.check = check;
   }
 }
 
